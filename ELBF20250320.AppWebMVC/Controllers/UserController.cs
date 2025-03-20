@@ -218,46 +218,5 @@ namespace ELBF20250320.AppWebMVC.Controllers
         {
             return _context.Users.Any(e => e.UserId == id);
         }
-
-        public async Task<IActionResult> Perfil()
-        {
-
-            var idStr = User.FindFirst("Id")?.Value;
-            int id = int.Parse(idStr);
-            var user = await _context.Users.FindAsync(id);
-            return View(user);
-        }
-
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Perfil(int id, [Bind("UserId,Username,Email,Role")] User user)
-        {
-            if (id != user.UserId)
-            {
-                return NotFound();
-            }
-            var userUpdate = await _context.Users
-                 .FirstOrDefaultAsync(m => m.UserId == user.UserId);
-            try
-            {
-                userUpdate.Username = user.Username;
-                userUpdate.Email = user.Email;
-                userUpdate.Role = user.Role;
-                _context.Update(userUpdate);
-                await _context.SaveChangesAsync();
-                return RedirectToAction("Index", "User");
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!UserExists(user.UserId))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    return View(user);
-                }
-            }
-        }
     }
 }
