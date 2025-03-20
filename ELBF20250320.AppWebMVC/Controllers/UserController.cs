@@ -6,9 +6,17 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using ELBF20250320.AppWebMVC.Models;
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace ELBF20250320.AppWebMVC.Controllers
 {
+    [Authorize(Roles = "ADMINISTRADOR")]
+
     public class UserController : Controller
     {
         private readonly Test20250320DbContext _context;
@@ -57,6 +65,7 @@ namespace ELBF20250320.AppWebMVC.Controllers
         {
             if (ModelState.IsValid)
             {
+                user.PasswordHash = CalcularHashMD5(user.PasswordHash);
                 _context.Add(user);
                 await _context.SaveChangesAsync();
                 return RedirectToAction(nameof(Index));
@@ -64,6 +73,62 @@ namespace ELBF20250320.AppWebMVC.Controllers
             return View(user);
         }
 
+        private string CalcularHashMD5(string passwordHash)
+        {
+            using (MD5 md5 = MD5.Create())
+            {
+                byte[] inputBytes = Encoding.UTF8.GetBytes(passwordHash);
+                byte[] hashBytes = md5.ComputeHash(inputBytes);
+
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < hashBytes.Length; i++)
+                {
+                    sb.Append(hashBytes[i].ToString("x2")); // "x2" convierte el byte en una cadena hexadecimal de dos caracteres.
+                }
+                return sb.ToString();
+            }
+        }
+
+        [AllowAnonymous]
+        public async Task<IActionResult> CerrarSession()
+        {
+            // Hola mundo
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return RedirectToAction("Index", "Home");
+        }
+
+        [AllowAnonymous]
+        public IActionResult Login()
+        {
+            return View();
+        }
+
+        [AllowAnonymous]
+        [HttpPost]
+        public async Task<IActionResult> Login(User user)
+        {
+            user.PasswordHash = CalcularHashMD5(user.PasswordHash);
+            var usuarioAuth = await _context.
+                Users.
+                FirstOrDefaultAsync(s => s.Email == user.Email && s.PasswordHash == user.PasswordHash);
+            if (usuarioAuth != null && usuarioAuth.UserId > 0 && usuarioAuth.Email == user.Email)
+            {
+                var claims = new[] {
+                    new Claim(ClaimTypes.Name, usuarioAuth.Email),
+                    new Claim("Id", usuarioAuth.UserId.ToString()),
+                     new Claim("Nombre", usuarioAuth.Username),
+                    new Claim(ClaimTypes.Role, usuarioAuth.Role)
+                    };
+                var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+                await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
+                return RedirectToAction("Index", "Home");
+            }
+            else
+            {
+                ModelState.AddModelError("", "El email o contraseña estan incorrectos");
+                return View();
+            }
+        }
         // GET: User/Edit/5
         public async Task<IActionResult> Edit(int? id)
         {
@@ -91,28 +156,29 @@ namespace ELBF20250320.AppWebMVC.Controllers
             {
                 return NotFound();
             }
+            var userUpdate = await _context.Users
+              .FirstOrDefaultAsync(m => m.UserId == user.UserId);
 
-            if (ModelState.IsValid)
+            try
             {
-                try
-                {
-                    _context.Update(user);
-                    await _context.SaveChangesAsync();
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    if (!UserExists(user.UserId))
-                    {
-                        return NotFound();
-                    }
-                    else
-                    {
-                        throw;
-                    }
-                }
+                userUpdate.Username = user.Username;
+                userUpdate.Email = user.Email;
+                userUpdate.Role = user.Role;
+                _context.Update(userUpdate);
+                await _context.SaveChangesAsync();
                 return RedirectToAction(nameof(Index));
             }
-            return View(user);
+            catch (DbUpdateConcurrencyException)
+            {
+                if (!UserExists(user.UserId))
+                {
+                    return NotFound();
+                }
+                else
+                {
+                    return View(user);
+                }
+            }
         }
 
         // GET: User/Delete/5
@@ -151,6 +217,47 @@ namespace ELBF20250320.AppWebMVC.Controllers
         private bool UserExists(int id)
         {
             return _context.Users.Any(e => e.UserId == id);
+        }
+
+        public async Task<IActionResult> Perfil()
+        {
+
+            var idStr = User.FindFirst("Id")?.Value;
+            int id = int.Parse(idStr);
+            var user = await _context.Users.FindAsync(id);
+            return View(user);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Perfil(int id, [Bind("UserId,Username,Email,Role")] User user)
+        {
+            if (id != user.UserId)
+            {
+                return NotFound();
+            }
+            var userUpdate = await _context.Users
+                 .FirstOrDefaultAsync(m => m.UserId == user.UserId);
+            try
+            {
+                userUpdate.Username = user.Username;
+                userUpdate.Email = user.Email;
+                userUpdate.Role = user.Role;
+                _context.Update(userUpdate);
+                await _context.SaveChangesAsync();
+                return RedirectToAction("Index", "User");
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                if (!UserExists(user.UserId))
+                {
+                    return NotFound();
+                }
+                else
+                {
+                    return View(user);
+                }
+            }
         }
     }
 }
